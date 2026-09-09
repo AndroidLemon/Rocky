@@ -5,3 +5,7 @@ bench/*.png
 .remember/
 .claude/settings.local.json
 .claude/.cc-writes/
+
+captures/*
+!captures/.gitkeep
+.venv/

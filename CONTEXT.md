@@ -31,6 +31,14 @@ the linger period after ending. A Voice that is not Audible surrenders its
 Register to the next Thread that needs one.
 _Avoid_: active, live, playing, alive
 
+### How Rocky hears
+
+**Adapter**:
+Whatever turns one harness's native signals into AG-UI events for Rocky. The
+Claude Code plugin is one; it forwards hook payloads and Rocky translates them.
+Any harness that can POST AG-UI events needs no Adapter at all.
+_Avoid_: integration, connector, bridge, proxy
+
 ### What Rocky hears
 
 **Phase**:

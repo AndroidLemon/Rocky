@@ -1,0 +1,5 @@
+{
+  "name": "rocky",
+  "version": "0.1.0",
+  "description": "Streams this session's lifecycle to a local Rocky sonification server as AG-UI events."
+}

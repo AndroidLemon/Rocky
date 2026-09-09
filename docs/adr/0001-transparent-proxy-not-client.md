@@ -1,5 +1,8 @@
 # Rocky is a transparent proxy, not an AG-UI client
 
+**Superseded by [ADR 0004](0004-event-sink-adapters.md).** The proxy is now a
+possible Adapter, not the architecture.
+
 AG-UI is client-initiated: a client POSTs a `RunAgentInput` to an agent endpoint
 and consumes the SSE stream that comes back. Rocky needs to be ambient — it must
 hear agents a developer already has running, having launched none of them — so it
