@@ -93,8 +93,9 @@ verdicts from `bench/measure_timeline.py`):
   (as the register finding predicted), while its quality-defining tones remain
   spectrally present.
 
-Whether dom7-vs-major-vs-cluster reads as *chord quality to a listener* still
-needs ears — the spectral precondition is confirmed, the percept is not.
+Listened 2026-09-09: dom7, major and cluster **do read as distinct chord
+qualities** to a human ear, in isolation with a fixed Style Prompt. Not yet
+checked under a busy Style Prompt or across key changes.
 
 **Caveat: held chords decay across a continuous run.** Section RMS fell
 0.070 → 0.056 → 0.042 → 0.021 over 32 s even with masking (`-1`) and onsets at
