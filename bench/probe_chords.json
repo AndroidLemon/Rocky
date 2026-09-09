@@ -1,0 +1,45 @@
+{
+ "events": [
+  {
+   "label": "home",
+   "start": 0.0,
+   "dur": 8,
+   "pitches": [
+    60,
+    64,
+    67
+   ]
+  },
+  {
+   "label": "dom7",
+   "start": 8.0,
+   "dur": 8,
+   "pitches": [
+    60,
+    64,
+    67,
+    70
+   ]
+  },
+  {
+   "label": "cluster",
+   "start": 16.0,
+   "dur": 8,
+   "pitches": [
+    60,
+    61,
+    62
+   ]
+  },
+  {
+   "label": "home2",
+   "start": 24.0,
+   "dur": 8,
+   "pitches": [
+    60,
+    64,
+    67
+   ]
+  }
+ ]
+}
