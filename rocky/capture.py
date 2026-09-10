@@ -22,6 +22,12 @@ def append(event, thread: str) -> None:
         f.write(json.dumps(event.model_dump(by_alias=True, exclude_none=True)) + "\n")
 
 
+def append_raw(payload: dict, thread: str) -> None:
+    DIR.mkdir(exist_ok=True)
+    with open(DIR / f"{thread}.hooks.jsonl", "a") as f:
+        f.write(json.dumps({"received": int(time.time() * 1000), **payload}) + "\n")
+
+
 def load(path):
     return [_parse(json.loads(line)) for line in Path(path).read_text().splitlines() if line.strip()]
 

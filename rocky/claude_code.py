@@ -21,8 +21,8 @@ class SessionState:
     thread_id: str | None = None
     run_id: str | None = None
     interrupted: bool = False
-    # agent_id (None = main agent) -> (kind, message_id) for the open message
-    open: dict = field(default_factory=dict)
+    finished: set = field(default_factory=set)  # run ids that already ended; never reuse
+    open: dict = field(default_factory=dict)  # open message_id -> agent_id (None = main)
     last_message_id: str | None = None
 
 
@@ -36,20 +36,19 @@ def translate(p: dict, s: SessionState) -> list[ev.BaseEvent]:
     agent = p.get("agent_id")
     out: list[ev.BaseEvent] = []
 
-    def close_message(key):
-        item = s.open.pop(key, None)
-        if item:
-            kind, mid = item
-            out.append(ev.TextMessageEndEvent(message_id=mid) if kind == "text"
-                       else ev.ReasoningMessageEndEvent(message_id=mid))
+    def close_messages(of_agent="*"):
+        for mid, owner in list(s.open.items()):
+            if of_agent == "*" or owner == of_agent:
+                del s.open[mid]
+                out.append(ev.TextMessageEndEvent(message_id=mid))
 
     def close_all():
-        for key in list(s.open):
-            close_message(key)
+        close_messages()
 
     def ensure_run():
         if s.run_id is None:
-            s.run_id = p.get("prompt_id") or str(uuid.uuid4())
+            rid = p.get("prompt_id")
+            s.run_id = rid if rid and rid not in s.finished else str(uuid.uuid4())
             out.append(ev.RunStartedEvent(thread_id=s.thread_id, run_id=s.run_id))
         elif s.interrupted:
             old, s.run_id, s.interrupted = s.run_id, str(uuid.uuid4()), False
@@ -58,6 +57,7 @@ def translate(p: dict, s: SessionState) -> list[ev.BaseEvent]:
     def finish(outcome):
         close_all()
         out.append(ev.RunFinishedEvent(thread_id=s.thread_id, run_id=s.run_id, outcome=outcome))
+        s.finished.add(s.run_id)
 
     def interrupt(tool_call_id=None):
         if s.interrupted:
@@ -77,26 +77,24 @@ def translate(p: dict, s: SessionState) -> list[ev.BaseEvent]:
             s.run_id, s.interrupted = None, False
             ensure_run()
         case "MessageDisplay":
-            if not p.get("text"):
+            # Real payload: message_id, index, final, delta (text blocks only; thinking never arrives)
+            text = p.get("delta") or p.get("text") or ""
+            mid = p.get("message_id") or str(uuid.uuid4())
+            if not text and mid not in s.open:
                 return []  # print mode fires one empty display; not a gesture
             ensure_run()
-            kind = "reasoning" if p.get("block_type") == "thinking" else "text"
-            cur = s.open.get(agent)
-            if cur and cur[0] != kind:
-                close_message(agent)
-                cur = None
-            if cur is None:
-                mid = str(uuid.uuid4())
-                s.open[agent] = (kind, mid)
+            if mid not in s.open:
+                s.open[mid] = agent
                 s.last_message_id = mid
-                out.append(ev.TextMessageStartEvent(message_id=mid, role="assistant") if kind == "text"
-                           else ev.ReasoningMessageStartEvent(message_id=mid, role="reasoning"))
-            mid = s.open[agent][1]
-            out.append(ev.TextMessageContentEvent(message_id=mid, delta=p.get("text", "")) if kind == "text"
-                       else ev.ReasoningMessageContentEvent(message_id=mid, delta=p.get("text", "")))
+                out.append(ev.TextMessageStartEvent(message_id=mid, role="assistant"))
+            if text:
+                out.append(ev.TextMessageContentEvent(message_id=mid, delta=text))
+            if p.get("final"):
+                del s.open[mid]
+                out.append(ev.TextMessageEndEvent(message_id=mid))
         case "PreToolUse":
             ensure_run()
-            close_message(agent)
+            close_messages(agent)
             tid = p.get("tool_use_id") or str(uuid.uuid4())
             out += [
                 ev.ToolCallStartEvent(tool_call_id=tid, tool_call_name=p.get("tool_name", "?"),
@@ -130,14 +128,13 @@ def translate(p: dict, s: SessionState) -> list[ev.BaseEvent]:
             ensure_run()
             close_all()
             out.append(ev.RunErrorEvent(message=p.get("error_message", ""), code=p.get("error_type")))
+            s.finished.add(s.run_id)
             s.run_id = None
         case "SubagentStart":
-            ensure_run()
             out.append(ev.SubagentStartedEvent(subagent_run_id=agent or "?", name=p.get("agent_type", "?")))
             agent = None  # the start event belongs to the parent
         case "SubagentStop":
-            ensure_run()
-            close_message(agent)
+            close_messages(agent)
             out.append(ev.SubagentFinishedEvent(subagent_run_id=agent or "?"))
             agent = None
         case "SessionEnd":

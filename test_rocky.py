@@ -23,9 +23,8 @@ def hook(name, **fields):
 SCRIPT = [
     hook("SessionStart", reason="startup"),
     hook("UserPromptSubmit", prompt_id="p1", prompt="do it"),
-    hook("MessageDisplay", prompt_id="p1", text="hmm\n", block_type="thinking"),
-    hook("MessageDisplay", prompt_id="p1", text="ok\n", block_type="thinking"),
-    hook("MessageDisplay", prompt_id="p1", text="Running.\n", block_type="text"),
+    hook("MessageDisplay", prompt_id="p1", message_id="m1", index=0, final=False, delta="Looking.\n"),
+    hook("MessageDisplay", prompt_id="p1", message_id="m1", index=0, final=False, delta="Running.\n"),
     hook("PreToolUse", prompt_id="p1", tool_name="Bash", tool_input={"command": "ls"}, tool_use_id="tu1"),
     hook("PostToolUse", prompt_id="p1", tool_name="Bash", tool_input={"command": "ls"}, tool_use_id="tu1",
          tool_result={"type": "text", "content": "a b c"}),
@@ -34,10 +33,12 @@ SCRIPT = [
     hook("Notification", prompt_id="p1", notification_type="permission_prompt"),  # duplicate signal, deduped
     hook("PostToolUseFailure", prompt_id="p1", tool_name="Edit", tool_input={}, tool_use_id="tu2", error="nope"),
     hook("SubagentStart", prompt_id="p1", agent_type="Explore", agent_id="ag1"),
-    hook("MessageDisplay", prompt_id="p1", text="sub\n", block_type="text", agent_id="ag1", agent_type="Explore"),
+    hook("MessageDisplay", prompt_id="p1", message_id="m2", final=False, delta="sub\n", agent_id="ag1", agent_type="Explore"),
     hook("SubagentStop", prompt_id="p1", agent_type="Explore", agent_id="ag1", last_assistant_message="sub"),
-    hook("MessageDisplay", prompt_id="p1", text="Done.\n", block_type="text"),
+    hook("MessageDisplay", prompt_id="p1", message_id="m3", final=False, delta="Done.\n"),
+    hook("MessageDisplay", prompt_id="p1", message_id="m3", final=True, delta=""),
     hook("Stop", prompt_id="p1", last_assistant_message="Done."),
+    hook("SubagentStop", prompt_id="p1", agent_type="Stray", agent_id="ag2"),  # after Stop: must not reopen a run
     hook("UserPromptSubmit", prompt_id="p2", prompt="again"),
     hook("StopFailure", prompt_id="p2", error_type="rate_limit", error_message="slow down"),
     hook("SessionEnd", reason="other"),
@@ -46,10 +47,8 @@ SCRIPT = [
 EXPECTED = [
     "CUSTOM",
     "RUN_STARTED",
-    "REASONING_MESSAGE_START", "REASONING_MESSAGE_CONTENT", "REASONING_MESSAGE_CONTENT",
-    "REASONING_MESSAGE_END",
-    "TEXT_MESSAGE_START", "TEXT_MESSAGE_CONTENT",
-    "TEXT_MESSAGE_END",
+    "TEXT_MESSAGE_START", "TEXT_MESSAGE_CONTENT", "TEXT_MESSAGE_CONTENT",
+    "TEXT_MESSAGE_END",        # closed by PreToolUse
     "TOOL_CALL_START", "TOOL_CALL_ARGS", "TOOL_CALL_END",
     "TOOL_CALL_RESULT",
     "TOOL_CALL_START", "TOOL_CALL_ARGS", "TOOL_CALL_END",
@@ -61,8 +60,9 @@ EXPECTED = [
     "TEXT_MESSAGE_END",        # closed by SubagentStop
     "SUBAGENT_FINISHED",
     "TEXT_MESSAGE_START", "TEXT_MESSAGE_CONTENT",
-    "TEXT_MESSAGE_END",
+    "TEXT_MESSAGE_END",        # closed by final=True
     "RUN_FINISHED",
+    "SUBAGENT_FINISHED",
     "RUN_STARTED",
     "RUN_ERROR",
     "CUSTOM",
@@ -95,7 +95,7 @@ def main():
     assert results[0].content == "a b c"
     assert results[1].content == "nope" and results[1].metadata == {"error": True}
 
-    sub_text = [e for e in events if e.type.value == "TEXT_MESSAGE_CONTENT"][1]
+    sub_text = [e for e in events if e.type.value == "TEXT_MESSAGE_CONTENT"][2]
     assert sub_text.subagent_run_id == "ag1"
     assert [e for e in events if e.type.value == "SUBAGENT_STARTED"][0].name == "Explore"
 
@@ -108,7 +108,11 @@ def main():
                             tool_result={"type": "text", "content": "x"}), fresh)
     assert [e.type.value for e in orphan] == ["RUN_STARTED", "TOOL_CALL_RESULT"]
     assert translate(hook("SomethingNew"), fresh) == []
-    assert translate(hook("MessageDisplay", text="", block_type="text"), fresh) == []
+    assert translate(hook("MessageDisplay", message_id="e", final=True, delta=""), fresh) == []
+    # A late hook after Stop must not resurrect the finished run id.
+    late = translate(hook("PostToolUse", prompt_id="p1", tool_name="Read", tool_input={}, tool_use_id="q",
+                          tool_result={"type": "text", "content": ""}), state)
+    assert late[0].type.value == "RUN_STARTED" and late[0].run_id not in ("p1", "p2")
 
     # Capture round trip.
     with tempfile.TemporaryDirectory() as d:
@@ -127,7 +131,7 @@ def main():
         assert capture.check(path) == []
         # Break ordering and confirm check catches it.
         bad = Path(d) / "bad.jsonl"
-        bad.write_text("\n".join([lines[12], lines[9], lines[10], lines[11]]) + "\n")
+        bad.write_text("\n".join([lines[10], lines[7], lines[8], lines[9]]) + "\n")
         problems = capture.check(bad)
         assert any("before" in p for p in problems), problems
 

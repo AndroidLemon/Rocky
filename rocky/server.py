@@ -47,6 +47,7 @@ class Handler(BaseHTTPRequestHandler):
 
         if self.path == "/claude-code":
             sid = body.get("session_id", "unknown")
+            capture.append_raw(body, sid)  # native stream, so the translator can be re-run offline
             with _lock:
                 events = translate(body, _sessions.setdefault(sid, SessionState()))
                 for e in events:
