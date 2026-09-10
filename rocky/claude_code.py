@@ -24,6 +24,7 @@ class SessionState:
     finished: set = field(default_factory=set)  # run ids that already ended; never reuse
     open: dict = field(default_factory=dict)  # open message_id -> agent_id (None = main)
     last_message_id: str | None = None
+    last_tool_call_id: str | None = None
 
 
 def now_ms() -> int:
@@ -96,6 +97,7 @@ def translate(p: dict, s: SessionState) -> list[ev.BaseEvent]:
             ensure_run()
             close_messages(agent)
             tid = p.get("tool_use_id") or str(uuid.uuid4())
+            s.last_tool_call_id = tid
             out += [
                 ev.ToolCallStartEvent(tool_call_id=tid, tool_call_name=p.get("tool_name", "?"),
                                       parent_message_id=s.last_message_id),
@@ -106,8 +108,8 @@ def translate(p: dict, s: SessionState) -> list[ev.BaseEvent]:
             ensure_run()
             tid = p.get("tool_use_id") or str(uuid.uuid4())
             if name == "PostToolUse":
-                r = p.get("tool_result")
-                content = r.get("content", "") if isinstance(r, dict) else r
+                r = p.get("tool_response") or p.get("tool_result")  # real hooks send tool_response
+                content = (r.get("content") or r.get("stdout", "")) if isinstance(r, dict) else r
                 content = content if isinstance(content, str) else json.dumps(content)
                 meta = None
             else:
@@ -116,7 +118,8 @@ def translate(p: dict, s: SessionState) -> list[ev.BaseEvent]:
             out.append(ev.ToolCallResultEvent(message_id=str(uuid.uuid4()), tool_call_id=tid,
                                               content=content[:2000], role="tool", metadata=meta))
         case "PermissionRequest":
-            interrupt(p.get("tool_use_id"))
+            # real payload has no tool_use_id; the prompt is for the call just started
+            interrupt(p.get("tool_use_id") or s.last_tool_call_id)
         case "Notification":
             if p.get("notification_type") in INTERRUPT_NOTIFICATIONS:
                 interrupt()
@@ -152,3 +155,4 @@ def translate(p: dict, s: SessionState) -> list[ev.BaseEvent]:
         if agent and "subagent_run_id" in type(e).model_fields and e.subagent_run_id is None:
             e.subagent_run_id = agent
     return out
+

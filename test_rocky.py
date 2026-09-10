@@ -27,9 +27,9 @@ SCRIPT = [
     hook("MessageDisplay", prompt_id="p1", message_id="m1", index=0, final=False, delta="Running.\n"),
     hook("PreToolUse", prompt_id="p1", tool_name="Bash", tool_input={"command": "ls"}, tool_use_id="tu1"),
     hook("PostToolUse", prompt_id="p1", tool_name="Bash", tool_input={"command": "ls"}, tool_use_id="tu1",
-         tool_result={"type": "text", "content": "a b c"}),
+         tool_response={"stdout": "a b c", "stderr": ""}),
     hook("PreToolUse", prompt_id="p1", tool_name="Edit", tool_input={"file_path": "f"}, tool_use_id="tu2"),
-    hook("PermissionRequest", prompt_id="p1", tool_name="Edit", tool_input={"file_path": "f"}, tool_use_id="tu2"),
+    hook("PermissionRequest", prompt_id="p1", tool_name="Edit", tool_input={"file_path": "f"}),  # no tool_use_id in reality
     hook("Notification", prompt_id="p1", notification_type="permission_prompt"),  # duplicate signal, deduped
     hook("PostToolUseFailure", prompt_id="p1", tool_name="Edit", tool_input={}, tool_use_id="tu2", error="nope"),
     hook("SubagentStart", prompt_id="p1", agent_type="Explore", agent_id="ag1"),
@@ -105,13 +105,13 @@ def main():
     # Robustness: result for an unseen tool call, text with no open run.
     fresh = SessionState()
     orphan = translate(hook("PostToolUse", tool_name="Read", tool_input={}, tool_use_id="zz",
-                            tool_result={"type": "text", "content": "x"}), fresh)
-    assert [e.type.value for e in orphan] == ["RUN_STARTED", "TOOL_CALL_RESULT"]
+                            tool_response={"type": "create", "content": "x"}), fresh)
+    assert [e.type.value for e in orphan] == ["RUN_STARTED", "TOOL_CALL_RESULT"] and orphan[1].content == "x"
     assert translate(hook("SomethingNew"), fresh) == []
     assert translate(hook("MessageDisplay", message_id="e", final=True, delta=""), fresh) == []
     # A late hook after Stop must not resurrect the finished run id.
     late = translate(hook("PostToolUse", prompt_id="p1", tool_name="Read", tool_input={}, tool_use_id="q",
-                          tool_result={"type": "text", "content": ""}), state)
+                          tool_response={"stdout": ""}), state)
     assert late[0].type.value == "RUN_STARTED" and late[0].run_id not in ("p1", "p2")
 
     # Capture round trip.
