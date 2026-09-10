@@ -29,7 +29,12 @@ Do these in order, as separate tool calls, so each hook fires distinctly:
 
 1. **Tool call**: run `ls bench` with Bash.
 2. **Interrupt**: use the Write tool to create `captures/selftest.txt` with one
-   line of text. In default permission mode this asks the user to approve.
+   line of text. Only a real approval prompt produces the Interrupt, and that
+   only happens in **default** permission mode. `auto`, `acceptEdits` and
+   `bypassPermissions` approve silently and no `PermissionRequest` hook fires.
+   Check your mode in the raw hook log after step 3 (`permission_mode` field);
+   if it is not `default`, report the Interrupt as untested and tell the user
+   to relaunch with `claude --permission-mode default`.
    Tell the user beforehand that an approval prompt is expected and to approve it.
 3. **Streamed text**: after the tools, reply to the user with at least four
    short lines of ordinary prose (not a list, not code) so `MessageDisplay`
@@ -42,9 +47,12 @@ Then:
 
 ```
 f=$(ls -t captures/*.jsonl | grep -v hooks | head -1)
-uv run python -m rocky.capture check "$f"
+.venv/bin/python -m rocky.capture check "$f"
 python3 -c "import json,collections; print(collections.Counter(json.loads(l)['type'] for l in open('$f')))"
+grep -o '"permission_mode": "[a-zA-Z]*"' "${f%.jsonl}.hooks.jsonl" | sort -u
 ```
+
+Use `.venv/bin/python`, not `uv run`: the sandbox cannot write uv's cache.
 
 ## 4. Report
 

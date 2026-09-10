@@ -29,8 +29,11 @@ format is documented as unstable and only reaches block granularity.
 - Thread = the harness's session id; Run = one prompt's turn. A permission
   prompt is an Interrupt: it ends the Run, and the next activity starts a new Run
   chained by `parentRunId`, exactly as ADR 0002 requires.
-- Streamed text arrives per completed line (`MessageDisplay`), not per token.
-  That is the melody's natural gesture rate.
+- Streamed text arrives per completed assistant message (`MessageDisplay`
+  with `final`), occasionally per content block, never per token or per line
+  as the docs claim. Measured 2026-09-09: one delta per message, 30 to 285
+  characters. A text gesture is therefore roughly once per turn segment, and
+  thinking is never delivered. Claude Code's reasoning is inaudible.
 - Hooks POST asynchronously so a session with Rocky stopped costs nothing and
   shows no errors. Ordering over localhost is measured by `capture check`, not
   assumed; if it ever fails, the hooks go synchronous with a short timeout.
