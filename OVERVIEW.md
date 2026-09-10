@@ -7,6 +7,7 @@ functions/signatures change — see AGENTS.md.
 
 ## Root
 
+- `README.md` — what Rocky is, the architecture diagram, the gesture table, status, how to run it.
 - `pyproject.toml` — package metadata (`rocky`, Python >=3.12), one dependency `ag-ui-protocol`, hatchling build.
 - `uv.lock` — locked dependency versions for `uv`.
 - `.gitignore` — ignores `__pycache__/`, bench-generated `.wav`/`.png`, `.remember/`, `.claude/settings.local.json`, `.claude/.cc-writes/`, `captures/*` (except `.gitkeep`), `renders/`, `.venv/`.
