@@ -9,9 +9,12 @@ functions/signatures change — see AGENTS.md.
 
 - `pyproject.toml` — package metadata (`rocky`, Python >=3.12), one dependency `ag-ui-protocol`, hatchling build.
 - `uv.lock` — locked dependency versions for `uv`.
-- `.gitignore` — ignores `__pycache__/`, bench-generated `.wav`/`.png`, `.remember/`, `.claude/settings.local.json`, `.claude/.cc-writes/`, `captures/*` (except `.gitkeep`), `.venv/`.
-- `CONTEXT.md` — Rocky's glossary/ubiquitous language (Thread, Run, Voice, Audible, Adapter, Phase, Ensemble Phase, Stall, Interrupt, Capture, Register, Note, Style Prompt, Blend Weights). Read this before naming anything new.
-- `test_rocky.py` — the one integration test, scripts a full Claude Code session through `translate()` + `capture` and asserts the exact event sequence.
+- `.gitignore` — ignores `__pycache__/`, bench-generated `.wav`/`.png`, `.remember/`, `.claude/settings.local.json`, `.claude/.cc-writes/`, `captures/*` (except `.gitkeep`), `renders/`, `.venv/`.
+- `CONTEXT.md` — Rocky's glossary/ubiquitous language (Thread, Run, Voice, Audible, Adapter, Phase, Ensemble Phase, Stall, Interrupt, Capture, Register, Home, Drone, Chord, Gesture, Style Prompt, Blend Weights). Read this before naming anything new.
+- `test_harmony.py` — event-grammar test: a scripted timeline asserts exact `(active, onsets)` pitch sets at chosen instants, then invariants over every `captures/*.jsonl` (≤8 active pitches, onsets ⊆ active, nothing active after the final run ends). Run: `.venv/bin/python test_harmony.py`.
+  - `ev(type, t, **fields) -> dict` — one wire-format AG-UI event for thread `"t1"`.
+  - `main() -> None`
+- `test_rocky.py` — the one ingress integration test, scripts a full Claude Code session through `translate()` + `capture` and asserts the exact event sequence.
   - `hook(name, **fields) -> dict` — builds one fake Claude Code hook payload for session `"sess-1"`.
   - `main() -> None` — runs `SCRIPT` through `translate`, checks event types/fields against `EXPECTED`, round-trips through `capture.append`/`capture.replay`/`capture.check`. Run: `uv run python test_rocky.py`.
 - `captures/.gitkeep` — placeholder; real captures (`<thread>.jsonl`, `<thread>.hooks.jsonl`) are written here at runtime and gitignored.
@@ -29,6 +32,14 @@ functions/signatures change — see AGENTS.md.
   - `class SessionState` (dataclass) — per-session mutable state: `thread_id`, `run_id`, `interrupted`, `finished: set` (run ids already ended), `open: dict` (open `message_id -> agent_id`), `last_message_id`, `last_tool_call_id` (the Interrupt names it, since `PermissionRequest` carries no `tool_use_id`).
   - `now_ms() -> int`
   - `translate(p: dict, s: SessionState) -> list[ev.BaseEvent]` — the core translator; dispatches on `p["hook_event_name"]` (`SessionStart`, `UserPromptSubmit`, `MessageDisplay`, `PreToolUse`, `PostToolUse`/`PostToolUseFailure`, `PermissionRequest`, `Notification`, `Stop`, `StopFailure`, `SubagentStart`/`SubagentStop`, `SessionEnd`; anything else → `[]`). `PostToolUse` reads `tool_response` (a dict with `stdout` or `content`; the documented `tool_result` is a fallback), truncated to 2000 chars. `MessageDisplay` arrives once per completed message with `final`, not per token.
+- `rocky/harmony.py` — the event grammar (milestone 2): AG-UI wire-format dicts → MRT2 note conditioning. Pure, no deps. Home key C; constants `DRONE`, `HOME`, `INTERRUPT` (G7), `ERROR` (cluster), `CHORDS` (quality per category), `CATEGORY` (tool name → category), timing constants (`REONSET_MS` 4 s, `MIN_HOLD_MS` 500, `ARRIVAL_MS`, `ARP_STEP_MS` 250, `ERROR_MS`, `FAILURE_MS`).
+  - `category(tool_name) -> str` — shell/read/mutate/network (`mcp__*` too)/agent/other.
+  - `class Harmony` — `run_open`, `calls` (open `toolCallId` → gesture), `log` (every gesture: `label`, `start`, `end` or `None`, `pitches`).
+    - `apply(e: dict) -> None` — advance on `RUN_STARTED` (arrival), `TOOL_CALL_START` (chord), `TOOL_CALL_RESULT` (release ≥ min hold; `metadata.error` adds a failure semitone), `TEXT_MESSAGE_START` (arpeggio of the current chord +12), `RUN_FINISHED` (release, or interrupt chord if `outcome.type == "interrupt"`), `RUN_ERROR` (cluster 2 s). Everything else ignored.
+    - `notes(now: int, frame_ms: int = 40) -> tuple[set[int], set[int]]` — `(active, onsets)` for the frame ending at `now`; drone when a Run is open and nothing else sounds; re-onsets every 4 s. Call in ascending time.
+- `rocky/render.py` — renders a capture to WAV + schedule JSON through MRT2. Runs only in the Prosody venv: `PYTHONPATH=. ~/Desktop/Projects/Prosody/.venv/bin/python -m rocky.render <capture.jsonl> renders/<name>.wav [--max-gap 6]`. Same engine settings and organ Style Prompt as `bench/probe_chords.py`; gates output to silence when nothing is active (1 s fade-out).
+  - `rebase(events, max_gap_ms) -> list[dict]` — t=0 at the first event, idle gaps clamped.
+  - `main() -> None` — prints duration, frame p50/p99 and gesture counts; writes `<name>.json` in the shape `bench/measure_timeline.py`/`bench/spectro.py` read.
 - `rocky/capture.py` — records/replays/validates AG-UI event streams as JSONL. CLI: `python -m rocky.capture replay captures/<id>.jsonl [--speed 1.0]` / `check captures/<id>.jsonl`.
   - `append(event, thread: str) -> None` — appends one validated AG-UI event to `captures/<thread>.jsonl`.
   - `append_raw(payload: dict, thread: str) -> None` — appends the raw hook payload (plus a `received` timestamp) to `captures/<thread>.hooks.jsonl`, so the translator can be re-run offline against the native stream.

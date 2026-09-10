@@ -75,11 +75,28 @@ The pitch range allocated to one Voice. Two Voices in different Registers sound
 simultaneously and remain separable to a listener.
 _Avoid_: octave, band, channel
 
-**Note**:
-A held pitch within a Voice's Register representing one tool call in flight. It
-sounds from the moment the call starts until its result arrives, so its length is
-the tool's duration. Nothing else an agent does earns a Note.
-_Avoid_: hit, blip, event, trigger
+**Home**:
+The fixed tonic (C, in v1). Every Run arrives at Home and every Interrupt
+leaves it, so resolution back to Home is what "the human answered" sounds like.
+_Avoid_: key, root, tonic, center
+
+**Drone**:
+The root pedal that sounds whenever a Run is open and nothing else is. It means
+"a Run is open"; its absence means silence between Runs.
+_Avoid_: pad, bed, hum, idle tone
+
+**Chord**:
+The pitch set held for one tool call in flight, from `TOOL_CALL_START` until
+its result (never shorter than the minimum hold). Its quality is chosen by the
+tool's category (shell, read, mutate, network, agent), so a listener can tell
+what kind of work is happening. Concurrent calls union their Chords.
+_Avoid_: note, hit, blip, voicing, trigger
+
+**Gesture**:
+Any musical response to one event: Arrival (`RUN_STARTED`), Chord, Arpeggio
+(`TEXT_MESSAGE_START`), Interrupt, Error, Release (`RUN_FINISHED`). The grammar
+is the table of Gestures in `rocky/harmony.py`.
+_Avoid_: cue, sound, effect, sfx, motif
 
 **Style Prompt**:
 One of the text descriptions whose embedding contributes to the music's overall
