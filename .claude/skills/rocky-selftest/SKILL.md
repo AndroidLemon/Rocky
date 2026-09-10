@@ -12,12 +12,16 @@ one fails; the report is the deliverable.
 ## 1. Confirm Rocky is listening
 
 ```
-curl -s -o /dev/null -w '%{http_code}\n' -X POST http://127.0.0.1:7337/events \
-  -d '{"type":"CUSTOM","name":"selftest","value":"ping"}'
+lsof -nP -iTCP:7337 -sTCP:LISTEN
 ```
 
-Expect `200`. If the connection is refused, stop and tell the user to run
-`uv run python -m rocky.server` in another terminal; nothing else can be tested.
+Expect a python process on the line. If nothing is listed, stop and tell the
+user to run `uv run python -m rocky.server` in another terminal; nothing else
+can be tested.
+
+Do not probe with curl: the Bash sandbox blocks localhost, so curl reports
+"connection refused" even when the server is up. Hooks are sent by Claude Code
+itself, outside the sandbox, and reach the server normally.
 
 ## 2. Produce the gestures
 
