@@ -9,7 +9,7 @@ functions/signatures change — see AGENTS.md.
 
 - `pyproject.toml` — package metadata (`rocky`, Python >=3.12), one dependency `ag-ui-protocol`, hatchling build.
 - `uv.lock` — locked dependency versions for `uv`.
-- `.gitignore` — ignores `__pycache__/`, bench-generated `.wav`/`.png`, `.remember/`, `captures/*` (except `.gitkeep`), `.venv/`.
+- `.gitignore` — ignores `__pycache__/`, bench-generated `.wav`/`.png`, `.remember/`, `.claude/settings.local.json`, `.claude/.cc-writes/`, `captures/*` (except `.gitkeep`), `.venv/`.
 - `CONTEXT.md` — Rocky's glossary/ubiquitous language (Thread, Run, Voice, Audible, Adapter, Phase, Ensemble Phase, Stall, Interrupt, Capture, Register, Note, Style Prompt, Blend Weights). Read this before naming anything new.
 - `test_rocky.py` — the one integration test, scripts a full Claude Code session through `translate()` + `capture` and asserts the exact event sequence.
   - `hook(name, **fields) -> dict` — builds one fake Claude Code hook payload for session `"sess-1"`.
@@ -26,9 +26,9 @@ functions/signatures change — see AGENTS.md.
     - `POST /events` — one AG-UI event or a list, validated via `TypeAdapter(Event)`, timestamped if missing, routed to `sink` under `_last_thread` (AG-UI only names the thread on `RUN_STARTED`).
   - Module-level state: `_sessions: dict[str, SessionState]`, `_lock`, `_last_thread`.
 - `rocky/claude_code.py` — translates Claude Code hook payloads into AG-UI events. Thread = `session_id`, Run = `prompt_id`; an Interrupt (permission prompt) ends a Run and the next activity starts a new one chained by `parent_run_id` (see ADR 0002). Never drops or raises: unknown hooks are ignored, orphans are repaired.
-  - `class SessionState` (dataclass) — per-session mutable state: `thread_id`, `run_id`, `interrupted`, `finished: set` (run ids already ended), `open: dict` (open `message_id -> agent_id`), `last_message_id`.
+  - `class SessionState` (dataclass) — per-session mutable state: `thread_id`, `run_id`, `interrupted`, `finished: set` (run ids already ended), `open: dict` (open `message_id -> agent_id`), `last_message_id`, `last_tool_call_id` (the Interrupt names it, since `PermissionRequest` carries no `tool_use_id`).
   - `now_ms() -> int`
-  - `translate(p: dict, s: SessionState) -> list[ev.BaseEvent]` — the core translator; dispatches on `p["hook_event_name"]` (`SessionStart`, `UserPromptSubmit`, `MessageDisplay`, `PreToolUse`, `PostToolUse`/`PostToolUseFailure`, `PermissionRequest`, `Notification`, `Stop`, `StopFailure`, `SubagentStart`/`SubagentStop`, `SessionEnd`; anything else → `[]`).
+  - `translate(p: dict, s: SessionState) -> list[ev.BaseEvent]` — the core translator; dispatches on `p["hook_event_name"]` (`SessionStart`, `UserPromptSubmit`, `MessageDisplay`, `PreToolUse`, `PostToolUse`/`PostToolUseFailure`, `PermissionRequest`, `Notification`, `Stop`, `StopFailure`, `SubagentStart`/`SubagentStop`, `SessionEnd`; anything else → `[]`). `PostToolUse` reads `tool_response` (a dict with `stdout` or `content`; the documented `tool_result` is a fallback), truncated to 2000 chars. `MessageDisplay` arrives once per completed message with `final`, not per token.
 - `rocky/capture.py` — records/replays/validates AG-UI event streams as JSONL. CLI: `python -m rocky.capture replay captures/<id>.jsonl [--speed 1.0]` / `check captures/<id>.jsonl`.
   - `append(event, thread: str) -> None` — appends one validated AG-UI event to `captures/<thread>.jsonl`.
   - `append_raw(payload: dict, thread: str) -> None` — appends the raw hook payload (plus a `received` timestamp) to `captures/<thread>.hooks.jsonl`, so the translator can be re-run offline against the native stream.
@@ -43,7 +43,8 @@ functions/signatures change — see AGENTS.md.
 
 ## `.claude/`
 
-- `.claude/settings.json` — enables the `mattpocock-skills@mattpocock` plugin for this project.
+- `.claude/settings.json` — enables the `mattpocock-skills@mattpocock` plugin and wires the same 13 hooks as `plugin/hooks/hooks.json` to `http://127.0.0.1:7337/claude-code`, so every Claude Code session opened in this repo is forwarded to Rocky without installing the plugin.
+- `.claude/skills/rocky-selftest/SKILL.md` — the `rocky-selftest` skill: from inside a session, confirm the server is listening (`lsof`, not curl; the sandbox blocks localhost), produce each gesture (tool call, an approval-prompt Interrupt that only fires in `default` permission mode, streamed text), then read back and report on the capture.
 
 ## `docs/` — design record
 
@@ -52,7 +53,7 @@ functions/signatures change — see AGENTS.md.
 - `docs/adr/0001-transparent-proxy-not-client.md` — **superseded by ADR 0004.** Original design: Rocky as a transparent AG-UI proxy sitting between an existing client and agent endpoint, sniffing and forwarding events byte-faithfully.
 - `docs/adr/0002-thread-owns-the-voice.md` — a Voice (musical identity + Register) is keyed on `threadId`, not `runId`, so human-in-the-loop approval (which ends one Run and starts another) doesn't relocate an agent's pitch range. Voices are reaped: Audible while their Thread has an open Run, an unanswered Interrupt, or is within a short post-completion linger; Registers reclaimed least-recently-audible.
 - `docs/adr/0003-style-blending-morphs-it-does-not-layer.md` — Magenta RT2 style blending is a weight-normalized mean of MusicCoCa embeddings (an interpolation, quantized to RVQ tokens), never a layered mix — so per-agent identity must live in the note channel/Registers, not in per-agent Style Prompts. Style is one global value with ≤6 prompt slots (`kMaxPrompts`), carrying only the Ensemble Phase's mood. The blend is a step function post-quantization; Magenta's own Collider throttles weight updates to 10 Hz.
-- `docs/adr/0004-event-sink-adapters.md` — **current architecture, supersedes ADR 0001.** Rocky is an inverted event sink (a local server receiving AG-UI events at `POST /events`) rather than a proxy in front of one AG-UI endpoint, because that's the only way to reach harnesses (like Claude Code) that never expose an AG-UI endpoint. Harnesses opt in through Adapters; the first is the Claude Code plugin (`plugin/`), whose hooks POST raw payloads to `POST /claude-code` for translation inside Rocky (`rocky/claude_code.py`). Thread = harness session id, Run = one prompt's turn, permission prompts are Interrupts (per ADR 0002). Hooks POST asynchronously; ordering is measured by `rocky capture check`, not assumed.
+- `docs/adr/0004-event-sink-adapters.md` — **current architecture, supersedes ADR 0001.** Rocky is an inverted event sink (a local server receiving AG-UI events at `POST /events`) rather than a proxy in front of one AG-UI endpoint, because that's the only way to reach harnesses (like Claude Code) that never expose an AG-UI endpoint. Harnesses opt in through Adapters; the first is the Claude Code plugin (`plugin/`), whose hooks POST raw payloads to `POST /claude-code` for translation inside Rocky (`rocky/claude_code.py`). Thread = harness session id, Run = one prompt's turn, permission prompts are Interrupts (per ADR 0002). Hooks POST asynchronously; ordering is measured by `rocky capture check`, not assumed. Records the measured hook granularity: `MessageDisplay` fires once per completed message (30–285 chars), never per token.
 
 ## `bench/` — Magenta RT2 latency/sound-design probes
 
